@@ -78,11 +78,7 @@ class ScreenCaptureService : Service() {
 
         val resultCode = intent?.getIntExtra("code", -1) ?: -1
         @Suppress("DEPRECATION")
-        val data = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            intent?.getParcelableExtra("data", Intent::class.java)
-        } else {
-            intent?.getParcelableExtra("data")
-        }
+        val data = intent?.getParcelableExtra<Intent>("data")
 
         if (resultCode != -1 && data != null) {
             try {
@@ -131,6 +127,14 @@ class ScreenCaptureService : Service() {
         // 提高缓冲区队列长度至 3，彻底避免多线程/高频回调下偶发性锁死
         imageReader = ImageReader.newInstance(targetWidth, targetHeight, PixelFormat.RGBA_8888, 3)
         
+        // Android 14+ 核心安全兼容性要求：必须在 createVirtualDisplay 之前注册 Callback，否则系统强制抛出 IllegalStateException 报错终止
+        mediaProjection?.registerCallback(object : MediaProjection.Callback() {
+            override fun onStop() {
+                super.onStop()
+                stopCapture()
+            }
+        }, backgroundHandler)
+
         virtualDisplay = mediaProjection?.createVirtualDisplay(
             "ScreenCapture",
             targetWidth, targetHeight, density,
