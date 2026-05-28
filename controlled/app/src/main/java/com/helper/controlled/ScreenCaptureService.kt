@@ -1,5 +1,6 @@
 package com.helper.controlled
 
+import android.app.Activity
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -76,19 +77,23 @@ class ScreenCaptureService : Service() {
         val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjectionManager = mpManager
 
-        val resultCodeFromIntent = intent?.getIntExtra("code", -1) ?: -1
+        // 默认值采用 0（RESULT_CANCELED = 0），避免与成功的 RESULT_OK (-1) 冲突
+        val resultCodeFromIntent = intent?.getIntExtra("code", 0) ?: 0
         @Suppress("DEPRECATION")
         val dataFromIntent = intent?.getParcelableExtra("data") as? Intent
 
         // 采用双通道合并取值，优先从 Intent 获取，若为空则从静态缓存获取，解决跨进程 Binder 传输反序列化可能失败的 Bug
-        val finalCode = if (resultCodeFromIntent != -1) resultCodeFromIntent else cachedResultCode
+        val finalCode = if (dataFromIntent != null) resultCodeFromIntent else cachedResultCode
         val finalData = dataFromIntent ?: cachedResultData
 
-        Log.d(TAG, "初始化 MediaProjection. finalCode: $finalCode, finalData: $finalData (intentCode: $resultCodeFromIntent, cachedCode: $cachedResultCode)")
+        // 采用 Log.i 保证在所有国产定制 ROM 上都能正常打印日志输出
+        Log.i(TAG, "初始化 MediaProjection. finalCode: $finalCode, finalData: $finalData (intentCode: $resultCodeFromIntent, cachedCode: $cachedResultCode)")
 
-        if (finalCode != -1 && finalData != null) {
+        if (finalData != null) {
             try {
-                mediaProjection = mpManager.getMediaProjection(finalCode, finalData)
+                // 如果 resultCode 为默认无效值且有了 finalData，则自动兜底使用 Activity.RESULT_OK (-1)
+                val realCode = if (finalCode == 0) Activity.RESULT_OK else finalCode
+                mediaProjection = mpManager.getMediaProjection(realCode, finalData)
                 startCapture()
             } catch (e: Exception) {
                 Log.e(TAG, "获取 MediaProjection 失败", e)
