@@ -30,9 +30,9 @@ class ScreenCaptureService : Service() {
         private const val NOTIFICATION_ID = 1001
         private const val CHANNEL_ID = "ScreenCaptureChannel"
 
-        // 供 Activity 传入 MediaProjection 凭证
-        var mediaProjectionResultCode: Int = 0
-        var mediaProjectionResultData: Intent? = null
+        // 双通道传输备用静态缓存
+        var cachedResultCode: Int = -1
+        var cachedResultData: Intent? = null
         
         // 发送压缩屏幕帧的回调
         var onFrameCapturedListener: ((ByteArray) -> Unit)? = null
@@ -76,20 +76,26 @@ class ScreenCaptureService : Service() {
         val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjectionManager = mpManager
 
-        val resultCode = intent?.getIntExtra("code", -1) ?: -1
+        val resultCodeFromIntent = intent?.getIntExtra("code", -1) ?: -1
         @Suppress("DEPRECATION")
-        val data = intent?.getParcelableExtra<Intent>("data")
+        val dataFromIntent = intent?.getParcelableExtra("data") as? Intent
 
-        if (resultCode != -1 && data != null) {
+        // 采用双通道合并取值，优先从 Intent 获取，若为空则从静态缓存获取，解决跨进程 Binder 传输反序列化可能失败的 Bug
+        val finalCode = if (resultCodeFromIntent != -1) resultCodeFromIntent else cachedResultCode
+        val finalData = dataFromIntent ?: cachedResultData
+
+        Log.d(TAG, "初始化 MediaProjection. finalCode: $finalCode, finalData: $finalData (intentCode: $resultCodeFromIntent, cachedCode: $cachedResultCode)")
+
+        if (finalCode != -1 && finalData != null) {
             try {
-                mediaProjection = mpManager.getMediaProjection(resultCode, data)
+                mediaProjection = mpManager.getMediaProjection(finalCode, finalData)
                 startCapture()
             } catch (e: Exception) {
                 Log.e(TAG, "获取 MediaProjection 失败", e)
                 stopSelf()
             }
         } else {
-            Log.e(TAG, "未配置 MediaProjection 凭证 (intent 为空或数据无效)")
+            Log.e(TAG, "未配置 MediaProjection 凭证 (intent 反序列化失败且无静态缓存)")
             stopSelf()
         }
 

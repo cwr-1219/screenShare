@@ -37,7 +37,10 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            // 通过 Intent 传参启动，彻底解决由于时序延迟或静态变量生命周期冲突引起的凭证失效问题
+            // 双通道传输：既写入静态变量作为备用缓存，又通过 Intent 参数传递，确保国产机型上序列化稳定
+            ScreenCaptureService.cachedResultCode = result.resultCode
+            ScreenCaptureService.cachedResultData = result.data
+
             val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
                 putExtra("code", result.resultCode)
                 putExtra("data", result.data)
