@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">远程协助受控端</string>
+    <string name="accessibility_service_label">孝心远程协助</string>
+    <string name="accessibility_service_desc">该服务用于接收子女的远程操作指令，帮您完成打车、买东西等日常手机操作。此功能完全透明公开，您可以随时在系统设置中将其关闭。</string>
+</resources>
