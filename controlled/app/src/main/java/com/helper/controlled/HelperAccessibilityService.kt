@@ -36,26 +36,33 @@ class HelperAccessibilityService : AccessibilityService() {
         Log.d(TAG, "无障碍服务被中断")
     }
 
+    private fun getRealScreenSize(): Pair<Int, Int> {
+        val displayManager = getSystemService(android.content.Context.DISPLAY_SERVICE) as android.hardware.display.DisplayManager
+        val display = displayManager.getDisplay(android.view.Display.DEFAULT_DISPLAY)
+        val realMetrics = android.util.DisplayMetrics()
+        display?.getRealMetrics(realMetrics)
+        
+        val width = if (realMetrics.widthPixels > 0) realMetrics.widthPixels else resources.displayMetrics.widthPixels
+        val height = if (realMetrics.heightPixels > 0) realMetrics.heightPixels else resources.displayMetrics.heightPixels
+        return Pair(width, height)
+    }
+
     /**
      * 模拟点击
      * @param xPercent 相对X轴百分比 (0.0f - 1.0f)
      * @param yPercent 相对Y轴百分比 (0.0f - 1.0f)
      */
     fun performClick(xPercent: Float, yPercent: Float): Boolean {
-        val dm = resources.displayMetrics
-        val width = dm.widthPixels
-        val height = dm.heightPixels
-
+        val (width, height) = getRealScreenSize()
         val actualX = xPercent * width
         val actualY = yPercent * height
 
-        Log.d(TAG, "执行模拟点击: ($actualX, $actualY)")
+        Log.d(TAG, "执行模拟点击 (绝对真实物理坐标): ($actualX, $actualY)")
 
         val path = Path()
         path.moveTo(actualX, actualY)
 
         val gestureBuilder = GestureDescription.Builder()
-        // 100ms 延迟，持续 50ms 的轻触
         gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 0, 50))
         
         return dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
@@ -75,16 +82,13 @@ class HelperAccessibilityService : AccessibilityService() {
      * 模拟滑动
      */
     fun performSwipe(startXPercent: Float, startYPercent: Float, endXPercent: Float, endYPercent: Float, duration: Long): Boolean {
-        val dm = resources.displayMetrics
-        val width = dm.widthPixels
-        val height = dm.heightPixels
-
+        val (width, height) = getRealScreenSize()
         val actualStartX = startXPercent * width
         val actualStartY = startYPercent * height
         val actualEndX = endXPercent * width
         val actualEndY = endYPercent * height
 
-        Log.d(TAG, "执行模拟滑动: ($actualStartX, $actualStartY) -> ($actualEndX, $actualEndY)，持续时间: $duration ms")
+        Log.d(TAG, "执行模拟滑动 (绝对真实物理坐标): ($actualStartX, $actualStartY) -> ($actualEndX, $actualEndY)，持续时间: $duration ms")
 
         val path = Path()
         path.moveTo(actualStartX, actualStartY)

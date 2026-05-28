@@ -42,22 +42,34 @@ class ScreenCaptureService : Service() {
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
     
-    private val handler = Handler(Looper.getMainLooper())
+    private var backgroundThread: android.os.HandlerThread? = null
+    private var backgroundHandler: Handler? = null
     private var isCapturing = false
     private var lastCaptureTime = 0L
-    private val CAPTURE_INTERVAL_MS = 150L // 限制帧率，大约每秒 6-7 帧，局域网够用且极大省电
+    private val CAPTURE_INTERVAL_MS = 50L // 调优到 50ms 帧间隔，获得每秒约 20 帧的极致流畅体验
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        // 开启独立的后台子线程进行屏幕像素的抓取和压缩，防止卡顿主线程
+        backgroundThread = android.os.HandlerThread("ScreenCaptureBackground").apply { start() }
+        backgroundHandler = Handler(backgroundThread!!.looper)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "ScreenCaptureService 启动")
         
-        // 1. 启动前台通知，这是 Android 的安全限制，保证录屏时用户完全知晓
+        // 1. 启动前台通知，Android 14 (API 34) 必须显式声明 FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
         val notification = createNotification()
-        startForeground(NOTIFICATION_ID, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
 
         // 2. 初始化 MediaProjection
         val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -90,12 +102,22 @@ class ScreenCaptureService : Service() {
         val density = dm.densityDpi
 
         // 局域网传输画面，将分辨率等比例缩小，减少传输数据量，提高流畅度
-        // 宽度上限设定为 540，高度等比缩放
-        val scale = 540f / screenWidth.coerceAtLeast(1)
-        val targetWidth = (screenWidth * scale).toInt()
-        val targetHeight = (screenHeight * scale).toInt()
+        // 宽度上限设定为 480，高度等比缩放，降低单帧数据大小
+        val scale = 480f / screenWidth.coerceAtLeast(1)
+        var targetWidth = (screenWidth * scale).toInt()
+        var targetHeight = (screenHeight * scale).toInt()
 
-        Log.d(TAG, "启动屏幕投影. 原始: ${screenWidth}x${screenHeight}, 缩放后: ${targetWidth}x${targetHeight}")
+        // 核心兼容性修复：确保物理宽高必须为偶数！
+        // 部分国产手机（如 Vivo、OPPO）的 GPU 硬件混合层强制要求虚拟显示源的分辨率必须是偶数对齐，
+        // 否则会静默失败不输出任何图像帧。
+        if (targetWidth % 2 != 0) {
+            targetWidth -= 1
+        }
+        if (targetHeight % 2 != 0) {
+            targetHeight -= 1
+        }
+
+        Log.d(TAG, "启动屏幕投影. 原始: ${screenWidth}x${screenHeight}, 兼容性修正后偶数分辨率: ${targetWidth}x${targetHeight}")
 
         // 实例化 ImageReader。使用 RGBA_8888 格式
         imageReader = ImageReader.newInstance(targetWidth, targetHeight, PixelFormat.RGBA_8888, 2)
@@ -117,7 +139,7 @@ class ScreenCaptureService : Service() {
                 val image = reader.acquireLatestImage()
                 image?.close()
             }
-        }, handler)
+        }, backgroundHandler)
     }
 
     private fun acquireLatestAndSend(reader: ImageReader) {
@@ -153,7 +175,7 @@ class ScreenCaptureService : Service() {
 
             // 压缩为 JPEG 字节数组
             val bos = ByteArrayOutputStream()
-            cleanBitmap.compress(Bitmap.CompressFormat.JPEG, 60, bos) // 60% 质量在移动端完全足够，且大小仅 30-50KB
+            cleanBitmap.compress(Bitmap.CompressFormat.JPEG, 50, bos) // 50% 质量，体积更小，传输更快
             val bytes = bos.toByteArray()
 
             // 释放 Bitmap 内存
@@ -185,6 +207,9 @@ class ScreenCaptureService : Service() {
 
     override fun onDestroy() {
         stopCapture()
+        backgroundThread?.quitSafely()
+        backgroundThread = null
+        backgroundHandler = null
         super.onDestroy()
     }
 

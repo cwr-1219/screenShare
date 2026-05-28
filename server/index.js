@@ -23,11 +23,25 @@ wss.on('connection', (ws, req) => {
     const clientIp = req.socket.remoteAddress;
     console.log(`[Server] 新连接来自: ${clientIp}`);
 
-    ws.on('message', (message) => {
+    ws.on('message', (message, isBinary) => {
+        // 1. 如果是二进制数据（屏幕截图流），直接中转转发给配对的另一端，不进行 JSON 解析
+        if (isBinary) {
+            const code = socketToRoomCode.get(ws);
+            if (code && rooms.has(code)) {
+                const room = rooms.get(code);
+                const targetSocket = (ws === room.controlledSocket) ? room.controllerSocket : room.controlledSocket;
+                if (targetSocket && targetSocket.readyState === WebSocket.OPEN) {
+                    targetSocket.send(message, { binary: true });
+                }
+            }
+            return;
+        }
+
+        // 2. 文本消息（控制指令、注册配对请求）处理
         try {
-            const data = JSON.parse(message);
+            const data = JSON.parse(message.toString());
             
-            // 1. 处理注册受控端 (被控端 - 妈妈)
+            // 处理注册受控端 (被控端 - 妈妈)
             if (data.action === 'register_controlled') {
                 const code = generatePairCode();
                 rooms.set(code, {
@@ -44,7 +58,7 @@ wss.on('connection', (ws, req) => {
                 return;
             }
 
-            // 2. 处理注册控制端 (主控端 - 子女)
+            // 处理注册控制端 (主控端 - 子女)
             if (data.action === 'register_controller') {
                 const code = data.code;
                 if (!rooms.has(code)) {
@@ -80,20 +94,19 @@ wss.on('connection', (ws, req) => {
                 return;
             }
 
-            // 3. 通用消息转发 (如果已经配对，则将消息转发给另一端)
+            // 3. 通用文本指令转发（如点击、滑动指令）
             const code = socketToRoomCode.get(ws);
             if (code && rooms.has(code)) {
                 const room = rooms.get(code);
                 const targetSocket = (ws === room.controlledSocket) ? room.controllerSocket : room.controlledSocket;
                 
                 if (targetSocket && targetSocket.readyState === WebSocket.OPEN) {
-                    // 原封不动转发数据（如屏幕流、操作指令）
-                    targetSocket.send(message);
+                    targetSocket.send(message.toString());
                 }
             }
 
         } catch (err) {
-            console.error('[Server] 解析消息失败:', err.message);
+            console.error('[Server] 解析文本消息失败:', err.message);
         }
     });
 

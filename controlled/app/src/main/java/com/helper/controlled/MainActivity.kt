@@ -37,12 +37,11 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            // 保存凭证
-            ScreenCaptureService.mediaProjectionResultCode = result.resultCode
-            ScreenCaptureService.mediaProjectionResultData = result.data
-            
-            // 启动前台截屏服务
-            val serviceIntent = Intent(this, ScreenCaptureService::class.java)
+            // 通过 Intent 传参启动，彻底解决由于时序延迟或静态变量生命周期冲突引起的凭证失效问题
+            val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
+                putExtra("code", result.resultCode)
+                putExtra("data", result.data)
+            }
             startService(serviceIntent)
             
             binding.tvPermissionProjection.text = "运行中"
@@ -69,7 +68,7 @@ class MainActivity : AppCompatActivity() {
     private fun initViews() {
         // 连接服务器按钮
         binding.btnConnect.setOnClickListener {
-            val ip = binding.et_server_ip.text.toString().trim()
+            val ip = binding.etServerIp.text.toString().trim()
             if (ip.isEmpty()) {
                 Toast.makeText(this, "请输入正确的服务器IP", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener

@@ -59,7 +59,7 @@
                     android:layout_weight="1"
                     android:hint="输入局域网服务器 IP"
                     android:inputType="phone"
-                    android:text="192.168.31.233"
+                    android:text="192.168.31.219"
                     android:textSize="16sp" />
 
                 <Button
@@ -164,12 +164,18 @@
                 android:orientation="horizontal">
 
                 <TextView
-                    android:layout_width="0dp"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
                     android:text="无障碍辅助服务"
                     android:textColor="#2D3748"
-                    android:textSize="15sp" />
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <!-- 弹性伸缩空间，自适应文字长度，把后续的状态和按钮安全推向最右侧 -->
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1" />
 
                 <TextView
                     android:id="@+id/tv_permission_accessibility"
@@ -198,12 +204,18 @@
                 android:orientation="horizontal">
 
                 <TextView
-                    android:layout_width="0dp"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
                     android:text="远程屏幕共享服务"
                     android:textColor="#2D3748"
-                    android:textSize="15sp" />
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <!-- 弹性伸缩空间 -->
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1" />
 
                 <TextView
                     android:id="@+id/tv_permission_projection"
