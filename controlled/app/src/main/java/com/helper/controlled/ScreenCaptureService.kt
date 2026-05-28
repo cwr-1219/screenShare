@@ -10,6 +10,7 @@ import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
+import android.media.Image
 import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
@@ -75,17 +76,24 @@ class ScreenCaptureService : Service() {
         val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjectionManager = mpManager
 
-        val data = mediaProjectionResultData
-        if (data != null) {
+        val resultCode = intent?.getIntExtra("code", -1) ?: -1
+        @Suppress("DEPRECATION")
+        val data = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent?.getParcelableExtra("data", Intent::class.java)
+        } else {
+            intent?.getParcelableExtra("data")
+        }
+
+        if (resultCode != -1 && data != null) {
             try {
-                mediaProjection = mpManager.getMediaProjection(mediaProjectionResultCode, data)
+                mediaProjection = mpManager.getMediaProjection(resultCode, data)
                 startCapture()
             } catch (e: Exception) {
                 Log.e(TAG, "获取 MediaProjection 失败", e)
                 stopSelf()
             }
         } else {
-            Log.e(TAG, "未配置 MediaProjection 凭证")
+            Log.e(TAG, "未配置 MediaProjection 凭证 (intent 为空或数据无效)")
             stopSelf()
         }
 
@@ -120,7 +128,8 @@ class ScreenCaptureService : Service() {
         Log.d(TAG, "启动屏幕投影. 原始: ${screenWidth}x${screenHeight}, 兼容性修正后偶数分辨率: ${targetWidth}x${targetHeight}")
 
         // 实例化 ImageReader。使用 RGBA_8888 格式
-        imageReader = ImageReader.newInstance(targetWidth, targetHeight, PixelFormat.RGBA_8888, 2)
+        // 提高缓冲区队列长度至 3，彻底避免多线程/高频回调下偶发性锁死
+        imageReader = ImageReader.newInstance(targetWidth, targetHeight, PixelFormat.RGBA_8888, 3)
         
         virtualDisplay = mediaProjection?.createVirtualDisplay(
             "ScreenCapture",
@@ -130,68 +139,68 @@ class ScreenCaptureService : Service() {
         )
 
         imageReader?.setOnImageAvailableListener({ reader ->
+            // 每次回调时，必须首先把最新的一帧取出来，以保证 ImageReader 的缓冲区不积压
+            val image = try {
+                reader.acquireLatestImage()
+            } catch (e: Exception) {
+                Log.e(TAG, "获取 Image 失败", e)
+                null
+            } ?: return@setOnImageAvailableListener
+
             val currentTime = System.currentTimeMillis()
             if (currentTime - lastCaptureTime >= CAPTURE_INTERVAL_MS) {
                 lastCaptureTime = currentTime
-                acquireLatestAndSend(reader)
+                try {
+                    sendImageFrame(image)
+                } catch (e: Exception) {
+                    Log.e(TAG, "转换并发送屏幕帧数据出错", e)
+                } finally {
+                    image.close()
+                }
             } else {
-                // 如果还不到采集间隔，直接丢弃该帧释放缓冲区
-                val image = reader.acquireLatestImage()
-                image?.close()
+                // 如果未到发送间隔，则立即关闭释放该帧，从而清空 ImageReader 的内部缓冲区
+                image.close()
             }
         }, backgroundHandler)
     }
 
-    private fun acquireLatestAndSend(reader: ImageReader) {
-        val image = try {
-            reader.acquireLatestImage()
-        } catch (e: Exception) {
-            null
-        } ?: return
+    private fun sendImageFrame(image: Image) {
+        val width = image.width
+        val height = image.height
+        val planes = image.planes
+        val buffer: ByteBuffer = planes[0].buffer
+        val pixelStride = planes[0].pixelStride
+        val rowStride = planes[0].rowStride
+        val rowPadding = rowStride - pixelStride * width
 
-        try {
-            val width = image.width
-            val height = image.height
-            val planes = image.planes
-            val buffer: ByteBuffer = planes[0].buffer
-            val pixelStride = planes[0].pixelStride
-            val rowStride = planes[0].rowStride
-            val rowPadding = rowStride - pixelStride * width
+        // 转换成 Bitmap
+        val bitmap = Bitmap.createBitmap(
+            width + rowPadding / pixelStride,
+            height,
+            Bitmap.Config.ARGB_8888
+        )
+        bitmap.copyPixelsFromBuffer(buffer)
 
-            // 转换成 Bitmap
-            val bitmap = Bitmap.createBitmap(
-                width + rowPadding / pixelStride,
-                height,
-                Bitmap.Config.ARGB_8888
-            )
-            bitmap.copyPixelsFromBuffer(buffer)
-
-            // 如果有内边距填充，需裁剪出实际有效图像
-            val cleanBitmap = if (rowPadding > 0) {
-                Bitmap.createBitmap(bitmap, 0, 0, width, height)
-            } else {
-                bitmap
-            }
-
-            // 压缩为 JPEG 字节数组
-            val bos = ByteArrayOutputStream()
-            cleanBitmap.compress(Bitmap.CompressFormat.JPEG, 50, bos) // 50% 质量，体积更小，传输更快
-            val bytes = bos.toByteArray()
-
-            // 释放 Bitmap 内存
-            if (cleanBitmap != bitmap) {
-                cleanBitmap.recycle()
-            }
-            bitmap.recycle()
-
-            // 回调发送
-            onFrameCapturedListener?.invoke(bytes)
-
-        } catch (e: Exception) {
-            Log.e(TAG, "截取屏幕数据转换出错", e)
-        } finally {
-            image.close()
+        // 如果有内边距填充，需裁剪出实际有效图像
+        val cleanBitmap = if (rowPadding > 0) {
+            Bitmap.createBitmap(bitmap, 0, 0, width, height)
+        } else {
+            bitmap
         }
+
+        // 压缩为 JPEG 字节数组
+        val bos = ByteArrayOutputStream()
+        cleanBitmap.compress(Bitmap.CompressFormat.JPEG, 50, bos) // 50% 质量，体积更小，传输更快
+        val bytes = bos.toByteArray()
+
+        // 释放 Bitmap 内存
+        if (cleanBitmap != bitmap) {
+            cleanBitmap.recycle()
+        }
+        bitmap.recycle()
+
+        // 回调发送
+        onFrameCapturedListener?.invoke(bytes)
     }
 
     private fun stopCapture() {
