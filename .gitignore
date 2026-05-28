@@ -1,0 +1,19 @@
+# Node.js
+**/node_modules/
+**/npm-debug.log*
+**/yarn-error.log*
+
+# Android / Gradle
+.gradle/
+build/
+**/build/
+*.iml
+.idea/
+local.properties
+.DS_Store
+*.apk
+*.ap_
+
+# Local Environment
+.env
+.env.local

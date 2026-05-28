@@ -1,0 +1,17 @@
+{
+  "name": "screenshare-server",
+  "version": "1.0.0",
+  "description": "WebSocket Signaling and Media Transfer Server for ScreenShare App",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  },
+  "private": true
+}

@@ -35,7 +35,13 @@ if ($Push) {
         Write-Host 'Warning: No remote repository configured. Cannot push.' -ForegroundColor Yellow
         Write-Host 'Please run: git remote add origin <your-repo-url>' -ForegroundColor Yellow
     } else {
-        Write-Host 'Pushing to remote repository...' -ForegroundColor Cyan
-        git push -u origin main
+        # 动态获取当前分支名称，避免写死 main/master 导致冲突
+        $branch = git branch --show-current
+        if ([string]::IsNullOrEmpty($branch)) {
+            $branch = git rev-parse --abbrev-ref HEAD
+        }
+        
+        Write-Host "Pushing to remote repository on branch: $branch..." -ForegroundColor Cyan
+        git push -u origin $branch
     }
 }
